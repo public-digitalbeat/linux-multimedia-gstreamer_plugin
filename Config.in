@@ -1,0 +1,6 @@
+config BR2_PACKAGE_GST_AML_DRM_PLUGINS1
+	bool "gst-aml-drm-plugins1"
+        depends on BR2_PACKAGE_GSTREAMER1
+        help
+          Amlogic GStreamer1 DRM plugins 1.0
+
