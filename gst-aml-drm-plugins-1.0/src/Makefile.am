@@ -1,1 +1,1 @@
-SUBDIRS = secmem secure_parse dummy
+SUBDIRS = secmem secure_parse dummy gst_svp_ext

@@ -133,7 +133,7 @@ gint gst_secmem_check_free_buf_size(GstAllocator * allocator)
     uint32_t available = 0;
     g_return_val_if_fail(GST_IS_SECMEM_ALLOCATOR (allocator), -1);
     GstSecmemAllocator *self = GST_SECMEM_ALLOCATOR (allocator);
-    g_return_val_if_fail(self->sess != NULL, NULL);
+    g_return_val_if_fail(self->sess != NULL, -1);
     g_mutex_lock (&self->mutex);
     g_return_val_if_fail(Secure_V2_GetSecmemSize(self->sess, NULL, &available, NULL, NULL) == 0, -1);
     g_mutex_unlock (&self->mutex);
@@ -160,6 +160,18 @@ gst_secmem_mem_free(GstAllocator *allocator, GstMemory *memory)
     g_mutex_unlock (&self->mutex);
 }
 
+void
+gst_secmem_free_handle(GstAllocator *allocator, secmem_handle_t handle)
+{
+    GstSecmemAllocator *self = GST_SECMEM_ALLOCATOR (allocator);
+    g_mutex_lock (&self->mutex);
+
+    Secure_V2_MemFree(self->sess, handle);
+    Secure_V2_MemRelease(self->sess, handle);
+    g_cond_broadcast (&self->cond);
+    g_mutex_unlock (&self->mutex);
+}
+
 
 gpointer
 gst_secmem_mem_map (GstMemory * gmem, gsize maxsize, GstMapFlags flags)
@@ -175,7 +187,7 @@ gst_secmem_mem_unmap (GstMemory * gmem)
 }
 
 GstMemory *
-gst_secmem_mem_copy(GstMemory *mem, gssize offset, gssize size)
+gst_secmem_mem_copy (GstMemory *mem, gssize offset, gssize size)
 {
     GST_ERROR("Not support copy");
     return NULL;
@@ -186,6 +198,44 @@ gst_secmem_mem_share (GstMemory * gmem, gssize offset, gssize size)
 {
     GST_ERROR("Not support share");
     return NULL;
+}
+
+GstAllocator *
+gst_secmem_allocator_new_ex (uint8_t decoder_format, uint8_t reserved) {
+    unsigned int ret;
+    uint32_t flag;
+    GstAllocator *alloc;
+    uint32_t capacity = 0;
+    uint32_t setsize = 0;
+
+    alloc = g_object_new(GST_TYPE_SECMEM_ALLOCATOR, NULL);
+    gst_object_ref_sink(alloc);
+
+    GstSecmemAllocator *self = GST_SECMEM_ALLOCATOR (alloc);
+    self->is_vp9 = decoder_format == SECMEM_DECODER_VP9 ? TRUE: FALSE;
+    self->is_av1 = decoder_format == SECMEM_DECODER_AV1 ? TRUE : FALSE;
+
+    ret = Secure_V2_SessionCreate(&self->sess);
+    g_return_val_if_fail(ret == 0, alloc);
+
+    capacity = Secure_GetSecmemSize();
+    g_return_val_if_fail(capacity > 0, alloc);
+
+    //custom set sec size
+    flag = 3;
+    if (self->is_vp9) {
+        flag |= 0x09 << 4;
+    } else if (self->is_av1) {
+        flag |= 0x0A << 4;
+    }
+    setsize = CEIL_POS(((uint32_t)(capacity >> 20) + 1) * 0.75);
+    if(setsize > 12)
+        setsize = 12;
+    ret = Secure_V2_Init(self->sess, 1, flag, 0, setsize);
+    g_return_val_if_fail(ret == 0, alloc);
+    GST_INFO("secmem init return %d, flag %x", ret, flag);
+
+    return alloc;
 }
 
 GstAllocator *
@@ -238,6 +288,34 @@ gst_secmem_fill(GstMemory *mem, uint32_t offset, uint8_t *buffer, uint32_t lengt
 
     GstSecmemAllocator *self = GST_SECMEM_ALLOCATOR (mem->allocator);
     ret = Secure_V2_MemFill(self->sess, handle, offset, buffer, length);
+    g_return_val_if_fail(ret == 0, FALSE);
+    GST_INFO("secmem fill return %d", ret);
+    return TRUE;
+}
+
+gboolean
+gst_secmem_copybyhandle(GstMemory *mem, uint32_t src_handle, uint32_t range, uint32_t dst_offset[], uint32_t src_offset[], uint32_t size[])
+{
+    uint32_t ret;
+    uint32_t handle;
+    handle = gst_secmem_memory_get_handle(mem);
+    g_return_val_if_fail(handle != 0, FALSE);
+    //GST_INFO("mem->size %d, size %d",  mem->size, size);
+    GstSecmemAllocator *self = GST_SECMEM_ALLOCATOR (mem->allocator);
+    ret = Secure_V2_MemCopy(self->sess, handle, src_handle, range, dst_offset, src_offset, size);
+    g_return_val_if_fail(ret == 0, FALSE);
+    return TRUE;
+}
+
+gboolean
+gst_secmem_check_free_buf_and_handles_size(GstAllocator * allocator, guint *availableSize, guint *handle_available)
+{
+    g_return_val_if_fail(GST_IS_SECMEM_ALLOCATOR (allocator), FALSE);
+    GstSecmemAllocator *self = GST_SECMEM_ALLOCATOR (allocator);
+    g_return_val_if_fail(self->sess != NULL, FALSE);
+    g_mutex_lock (&self->mutex);
+    uint32_t ret = Secure_V2_GetSecmemSize(self->sess, NULL, availableSize, NULL, handle_available);
+    g_mutex_unlock (&self->mutex);
     g_return_val_if_fail(ret == 0, FALSE);
     return TRUE;
 }
@@ -451,7 +529,6 @@ gboolean gst_buffer_copy_to_secmem(GstBuffer *dst, GstBuffer *src)
 gboolean gst_buffer_sideband_secmem(GstBuffer *dst)
 {
     unsigned int ret;
-    GstMapInfo map;
     GstMemory *mem;
     uint32_t handle;
     mem = gst_buffer_peek_memory(dst, 0);

@@ -83,9 +83,21 @@ else
 fi
 AC_SUBST(plugindir)
 
+AC_ARG_ENABLE([essos-rm],
+[  --enable-essos-rm Use essos for resource managing],
+[case "${enableval}" in
+  yes) essos=true ;;
+  no)  essos=false ;;
+  *) AC_MSG_ERROR([bad value ${enableval} for --enable-essos-rm]) ;;
+esac],[essos=false])
+AM_CONDITIONAL([ESSOS], [test x${essos} = xtrue])
+
 dnl set proper LDFLAGS for plugins
-GST_PLUGIN_LDFLAGS='-module -avoid-version -export-symbols-regex [_]*\(gst_\|Gst\|GST_\).*'
+# dnl GST_PLUGIN_LDFLAGS='-module -avoid-version -export-symbols-regex [_]*\(gst_\|Gst\|GST_\).*'
+GST_PLUGIN_LDFLAGS='-module -avoid-version'
 AC_SUBST(GST_PLUGIN_LDFLAGS)
+
+AC_PROG_CXX
 
 AC_CONFIG_FILES([Makefile
 src/Makefile
@@ -93,6 +105,7 @@ src/secmem/Makefile
 src/secmem/gstsecmemallocator.pc
 src/secure_parse/Makefile
 src/dummy/Makefile
+src/gst_svp_ext/Makefile
 ])
 AC_OUTPUT
 

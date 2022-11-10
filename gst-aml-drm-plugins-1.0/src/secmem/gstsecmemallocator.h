@@ -36,6 +36,9 @@ typedef uint32_t secmem_paddr_t;
 #define GST_ALLOCATOR_SECMEM "secmem"
 #define GST_CAPS_FEATURE_MEMORY_SECMEM_MEMORY "memory:SecMem"
 
+#define CEIL_POS(X) ((X-(int)(X)) > 0 ? (int)(X+1) : (int)(X))
+#define FLOOR_POS(X) (int)(X)
+
 struct _GstSecmemAllocator
 {
     GstDmaBufAllocator      parent;
@@ -52,6 +55,12 @@ struct _GstSecmemAllocatorClass
     GstDmaBufAllocatorClass parent_class;
 };
 
+typedef struct _Sec_CopyIndex {
+    uint32_t    offset_in_src;
+    uint32_t    offset_in_target;
+    uint32_t    bytes_to_copy;
+} SEC_CopyIndex;
+
 /*Sec decoder definition */
 enum {
     SECMEM_DECODER_DEFAULT                       = 0,
@@ -63,8 +72,10 @@ enum {
 
 GType           gst_secmem_allocator_get_type (void);
 GstAllocator *  gst_secmem_allocator_new (gboolean is_4k, uint8_t decoder_format);
+GstAllocator *  gst_secmem_allocator_new_ex (uint8_t decoder_format, uint8_t reserved);
 gboolean        gst_is_secmem_memory (GstMemory *mem);
 gboolean        gst_secmem_fill(GstMemory *mem, uint32_t offset, uint8_t *buffer, uint32_t length);
+gboolean        gst_secmem_copybyhandle(GstMemory *mem, uint32_t dst_handle, uint32_t range, uint32_t dst_offset[], uint32_t src_offset[], uint32_t size[]);
 gboolean        gst_secmem_store_csd(GstMemory *mem, uint8_t *buffer, uint32_t length);
 gboolean        gst_secmem_prepend_csd(GstMemory *mem);
 gboolean        gst_secmem_parse_avcc(GstMemory *mem, uint8_t *buffer, uint32_t length);
@@ -74,6 +85,7 @@ gboolean        gst_secmem_parse_hvc2nalu(GstMemory *mem, uint32_t *flag);
 gboolean        gst_secmem_parse_vp9(GstMemory *mem);
 gboolean        gst_secmem_parse_av1(GstMemory *mem);
 gint            gst_secmem_check_free_buf_size(GstAllocator * allocator);
+gboolean        gst_secmem_check_free_buf_and_handles_size(GstAllocator * allocator, guint *availableSize, guint *handle_available);
 gint            gst_secmem_get_free_buf_num(GstMemory *mem);
 gint            gst_secmem_get_free_buf_size(GstMemory *mem);
 secmem_handle_t gst_secmem_memory_get_handle (GstMemory *mem);
@@ -82,6 +94,7 @@ secmem_handle_t gst_buffer_get_secmem_handle(GstBuffer *buffer);
 secmem_paddr_t  gst_buffer_get_secmem_paddr(GstBuffer *buffer);
 gboolean        gst_buffer_copy_to_secmem(GstBuffer *dst, GstBuffer *src);
 gboolean        gst_buffer_sideband_secmem(GstBuffer *dst);
+void            gst_secmem_free_handle(GstAllocator *allocator, secmem_handle_t handle);
 
 
 G_END_DECLS
